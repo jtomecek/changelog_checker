@@ -1,3 +1,3 @@
 # changelog_checker
 
-Usage: perl changelog_checker.pl <Slack channel webhook URL>
+Usage: perl changelog_checker.pl slack_channel_webhook_URL
