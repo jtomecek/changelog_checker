@@ -16,7 +16,16 @@ GetOptions(
     'generate-db-only' => \$generate_db_only,
 ) or die "Error in command line arguments\n";
 
-die "Usage: $0 --slack-webhook-url=URL [--generate-db-only]\n" unless $slack_webhook_url;
+# Validate command line arguments
+if ($generate_db_only) {
+    if ($slack_webhook_url) {
+        die "Usage: $0 --generate-db-only OR --slack-webhook-url=URL\n";
+    }
+} else {
+    if (!$slack_webhook_url) {
+        die "Usage: $0 --slack-webhook-url=URL OR --generate-db-only\n";
+    }
+}
 
 # General configurations
 my $user_agent_string = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3';
