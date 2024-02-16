@@ -2,12 +2,21 @@
 
 use strict;
 use warnings;
+use Getopt::Long;
 use LWP::UserAgent;
 use HTML::TreeBuilder;
 use JSON;
 
-# Check for the Slack webhook URL passed as a command line argument
-my $slack_webhook_url = $ARGV[0] or die "Usage: $0 slack_webhook_url\n";
+# Command line options
+my $slack_webhook_url = '';
+my $generate_db_only = 0; # Flag to indicate DB generation only mode
+
+GetOptions(
+    'slack-webhook-url=s' => \$slack_webhook_url,
+    'generate-db-only' => \$generate_db_only,
+) or die "Error in command line arguments\n";
+
+die "Usage: $0 --slack-webhook-url=URL [--generate-db-only]\n" unless $slack_webhook_url;
 
 # General configurations
 my $user_agent_string = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3';
@@ -33,13 +42,13 @@ my @sites = (
 );
 
 foreach my $site (@sites) {
-    process_site($site, $user_agent_string, $slack_webhook_url);
+    process_site($site, $user_agent_string, $slack_webhook_url, $generate_db_only);
 }
 
 sub process_site {
-    my ($config, $user_agent, $webhook_url) = @_;
+    my ($config, $user_agent, $webhook_url, $db_only) = @_;
 
-    # Read sent posts from file
+    # Initialize sent posts hash
     my %sent_posts;
     if (-e $config->{sent_posts_file}) {
         open my $file, '<', $config->{sent_posts_file} or die "Could not open file '$config->{sent_posts_file}': $!";
@@ -50,11 +59,9 @@ sub process_site {
         close $file;
     }
 
-    # Create a user agent
     my $ua = LWP::UserAgent->new(ssl_opts => { verify_hostname => 0 });
     $ua->agent($user_agent);
 
-    # Fetch the content of the webpage
     my $response = $ua->get($config->{url_to_fetch});
 
     if ($response->is_success) {
@@ -70,27 +77,28 @@ sub process_site {
         for my $post (@posts) {
             my $post_title = $post->as_text;
 
-            unless ($sent_posts{$post_title}) {
-                my $payload = encode_json({
-                    text => "New Post: $post_title\n$config->{url_to_fetch}",
-                });
-                
-                my $req = HTTP::Request->new('POST', $webhook_url);
-                $req->header('Content-Type' => 'application/json');
-                $req->content($payload);
+            if (!$sent_posts{$post_title}) {
+                if (!$db_only) {
+                    my $payload = encode_json({ text => "New Post: $post_title\n$config->{url_to_fetch}" });
+                    
+                    my $req = HTTP::Request->new('POST', $webhook_url);
+                    $req->header('Content-Type' => 'application/json');
+                    $req->content($payload);
 
-                my $slack_response = $ua->request($req);
+                    my $slack_response = $ua->request($req);
 
-                if ($slack_response->is_success) {
-                    print "Post successfully sent to Slack: $post_title\n";
-                    open my $file, '>>', $config->{sent_posts_file} or die "Could not open file '$config->{sent_posts_file}': $!";
-                    print $file "$post_title\n";
-                    close $file;
+                    if ($slack_response->is_success) {
+                        print "Post successfully sent to Slack: $post_title\n";
+                    } else {
+                        print "Failed to send post to Slack: ", $slack_response->status_line, "\n";
+                    }
                 } else {
-                    print "Failed to send post to Slack: ", $slack_response->status_line, "\n";
+                    print "DB Only Mode: Post recorded: $post_title\n";
                 }
-            } else {
-                print "Post has already been sent: $post_title\n";
+                # Update the database (file) whether or not in db_only mode
+                open my $file, '>>', $config->{sent_posts_file} or die "Could not open file '$config->{sent_posts_file}': $!";
+                print $file "$post_title\n";
+                close $file;
             }
         }
     } else {
